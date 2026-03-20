@@ -18,6 +18,7 @@ const simulationRoutes  = require('./routes/simulationRoutes');
 // New Firebase-backed routes
 const elderRoutes   = require('./routes/elderRoutes');
 const triggerRoutes = require('./routes/triggerRoutes');
+const autoSimRoutes = require('./routes/autoSimRoutes');
 
 // ========== MIDDLEWARE ==========
 
@@ -63,6 +64,9 @@ app.use('/api/vitals', healthRoutes);
 
 // Display/Dashboard Routes
 app.use('/display', displayRoutes);
+
+// Auto simulation (per-elder)
+app.use('/api/auto-sim', autoSimRoutes);
 
 // Root redirect to dashboard
 app.get('/', (req, res) => {

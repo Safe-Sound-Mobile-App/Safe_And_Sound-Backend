@@ -171,6 +171,35 @@ router.get('/dashboard', (req, res) => {
         .btn-danger:hover  { background: rgba(248,113,113,0.35); }
         .btn-notwear:hover { background: rgba(148,163,184,0.28); }
 
+        /* Auto simulation button */
+        .auto-row {
+            margin-top: 14px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .btn-auto {
+            width: 100%;
+            background: rgba(167,139,250,0.15);
+            color: #c4b5fd;
+            border: 1px solid rgba(167,139,250,0.35);
+            padding: 10px 12px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 0.78rem;
+            font-weight: 800;
+            transition: background 0.15s, transform 0.15s;
+        }
+        .btn-auto:hover { background: rgba(167,139,250,0.28); transform: translateY(-1px); }
+        .btn-auto:active { transform: scale(0.99); }
+        .btn-auto.on {
+            background: rgba(52,211,153,0.15);
+            border-color: rgba(52,211,153,0.45);
+            color: #34d399;
+        }
+        .btn-auto.on:hover { background: rgba(52,211,153,0.28); }
+        .btn-auto.off { opacity: 0.95; }
+
         /* Spinner */
         .spinner {
             display: inline-block; width: 14px; height: 14px;
@@ -242,6 +271,7 @@ router.get('/dashboard', (req, res) => {
 <script>
 // ── State ────────────────────────────────────────────────────────────────
 let eldersData = [];
+let autoRunning = {}; // elderId -> true
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 const fmt = v => (v !== null && v !== undefined) ? v : '—';
@@ -294,7 +324,7 @@ function formatTime(tsObj) {
 }
 
 // ── Build a single elder card ─────────────────────────────────────────────
-function buildCard(elder, latestHealthData) {
+function buildCard(elder, latestHealthData, autoOn) {
     const elderId    = elder.id;
     const name       = ((elder.firstName || '') + ' ' + (elder.lastName || '')).trim() || elderId;
     const ai         = latestHealthData?.aiPrediction || null;
@@ -313,6 +343,9 @@ function buildCard(elder, latestHealthData) {
     const confFill = aiStatus ? ('conf-fill-' + aiStatus.replace('_', '_')) : '';
     const confW   = conf ? conf + '%' : '0%';
     const lastT   = latestHealthData?.triggeredAt ? formatTime(latestHealthData.triggeredAt) : null;
+
+    const autoIsOn = !!autoOn;
+    const autoLabel = autoIsOn ? '⏸️ Auto ON (NORMAL/WARNING/DANGER)' : '▶️ Auto OFF';
 
     return \`
     <div class="card \${cardClass}" id="card-\${elderId}">
@@ -361,6 +394,14 @@ function buildCard(elder, latestHealthData) {
             <button class="btn-trigger btn-notwear" onclick="trigger('\${elderId}', 'NOT_WEARING')">👕 Not<br>Wearing</button>
         </div>
 
+        <div class="auto-row">
+            <button
+                id="auto-\${elderId}"
+                class="btn-auto \${autoIsOn ? 'on' : 'off'}"
+                onclick="toggleAuto('\${elderId}')"
+            >\${autoLabel}</button>
+        </div>
+
         \${lastT ? \`<div class="last-update">Last triggered: \${lastT}</div>\` : ''}
     </div>\`;
 }
@@ -382,8 +423,13 @@ function updateSummary(data) {
 // ── Load all elders from Firebase (via backend API) ───────────────────────
 async function loadElders() {
     try {
-        const res    = await fetch('/api/elders');
-        const result = await res.json();
+        const [eldersRes, autoRes] = await Promise.all([
+            fetch('/api/elders'),
+            fetch('/api/auto-sim/status'),
+        ]);
+        const result = await eldersRes.json();
+        const autoResult = await autoRes.json();
+        autoRunning = autoResult.running || {};
 
         if (!result.success) throw new Error(result.message || 'Failed to load elders');
 
@@ -401,7 +447,7 @@ async function loadElders() {
         }
 
         grid.innerHTML = eldersData
-            .map(({ elder, latestHealthData }) => buildCard(elder, latestHealthData))
+            .map(({ elder, latestHealthData }) => buildCard(elder, latestHealthData, autoRunning[elder.id]))
             .join('');
 
         updateSummary(eldersData);
@@ -416,6 +462,29 @@ async function loadElders() {
                 <div class="icon">❌</div>
                 <div>Failed to load elders: \${err.message}</div>
             </div>\`;
+    }
+}
+
+async function toggleAuto(elderId) {
+    const btn = document.getElementById('auto-' + elderId);
+    if (!btn) return;
+
+    const currentlyOn = !!autoRunning[elderId];
+    btn.disabled = true;
+
+    try {
+        const endpoint = '/api/auto-sim/' + elderId + '/' + (currentlyOn ? 'stop' : 'start');
+        const res = await fetch(endpoint, { method: 'POST' });
+        const data = await res.json();
+
+        if (!data.success) throw new Error(data.message || 'Auto sim toggle failed');
+
+        showToast(currentlyOn ? 'Auto stopped' : 'Auto started', 'success');
+        await loadElders();
+    } catch (err) {
+        console.error('Auto toggle error:', err);
+        showToast('Auto error: ' + err.message, 'error');
+        btn.disabled = false;
     }
 }
 

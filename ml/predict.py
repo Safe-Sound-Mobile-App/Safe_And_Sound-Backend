@@ -31,19 +31,26 @@ def load_model():
 def predict(data: dict) -> dict:
     scaler, interpreter, in_det, out_det = load_model()
 
-    one_reading = [
-        data["accelerometer"]["x"],
-        data["accelerometer"]["y"],
-        data["accelerometer"]["z"],
-        data["gyro"]["x"],
-        data["gyro"]["y"],
-        data["gyro"]["z"],
-        data["heartRate"],
-        data["spo2"],
-    ]
+    # Preferred input: a full 200×8 window (in training distribution).
+    # Fallback: single reading payload (legacy) which will be tiled.
+    if "window" in data and data["window"] is not None:
+        window = np.array(data["window"], dtype=np.float32)  # (200, 8)
+    else:
+        one_reading = [
+            data["accelerometer"]["x"],
+            data["accelerometer"]["y"],
+            data["accelerometer"]["z"],
+            data["gyro"]["x"],
+            data["gyro"]["y"],
+            data["gyro"]["z"],
+            data["heartRate"],
+            data["spo2"],
+        ]
+        # Build 200-timestep window (steady-state assumption for single snapshot)
+        window = np.tile(one_reading, (200, 1)).astype(np.float32)  # (200, 8)
 
-    # Build 200-timestep window (steady-state assumption for single snapshot)
-    window = np.tile(one_reading, (200, 1)).astype(np.float32)  # (200, 8)
+    if window.shape != (200, 8):
+        raise ValueError(f"Expected window shape (200,8), got {window.shape}")
 
     # Derive 3 extra channels
     acc_mag  = np.linalg.norm(window[:, :3], axis=1, keepdims=True)
